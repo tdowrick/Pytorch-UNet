@@ -1,11 +1,12 @@
 """ Full assembly of the parts to form the complete network """
 
 from .unet_parts import *
-
+import torch.nn as nn
 
 class UNet(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=True):
         super(UNet, self).__init__()
+
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
@@ -21,7 +22,7 @@ class UNet(nn.Module):
         self.up3 = Up(256, 128 // factor, bilinear)
         self.up4 = Up(128, 64, bilinear)
         self.outc = OutConv(64, n_classes)
-
+        
     def forward(self, x):
         x1 = self.inc(x)
         x2 = self.down1(x1)

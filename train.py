@@ -2,6 +2,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from PIL import Image
 
 import torch
 import torch.nn as nn
@@ -10,14 +11,24 @@ import wandb
 from torch import optim
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
-
+from torchvision.utils import save_image
 from utils.data_loading import BasicDataset, CarvanaDataset
 from utils.dice_score import dice_loss
 from evaluate import evaluate
 from unet import UNet
 
-dir_img = Path('./data/imgs/')
-dir_mask = Path('./data/masks/')
+# dir_img = Path('./data/train/images/')
+# dir_mask = Path('./data/train/masks/')
+dir_img = Path(
+    r"C:\Users\Tom\AppData\LocalLow\DefaultCompany\My project (2)\50k\images"
+)
+dir_mask = Path(
+    r"C:\Users\Tom\AppData\LocalLow\DefaultCompany\My project (2)\50k\masks"
+)
+
+dir_val_img = Path('./data/validation/images')
+dir_val_mask = Path('./data/validation/masks')
+
 dir_checkpoint = Path('./checkpoints/')
 
 
@@ -31,26 +42,29 @@ def train_net(net,
               img_scale: float = 0.5,
               amp: bool = False):
     # 1. Create dataset
-    try:
-        dataset = CarvanaDataset(dir_img, dir_mask, img_scale)
-    except (AssertionError, RuntimeError):
-        dataset = BasicDataset(dir_img, dir_mask, img_scale)
+#    try:
+ #       dataset = CarvanaDataset(dir_img, dir_mask, img_scale)
+ #   except (AssertionError, RuntimeError):
+    dataset = BasicDataset(dir_img, dir_mask, img_scale)
+    val_dataset = BasicDataset(dir_val_img, dir_val_mask, img_scale)
 
     # 2. Split into train / validation partitions
-    n_val = int(len(dataset) * val_percent)
-    n_train = len(dataset) - n_val
-    train_set, val_set = random_split(dataset, [n_train, n_val], generator=torch.Generator().manual_seed(0))
+    n_val = len(val_dataset)
+    n_train = len(dataset)
+    #n_val = int(len(dataset) * val_percent)
+    #n_train = len(dataset) - n_val
+    #train_set, val_set = random_split(dataset, [n_train, n_val], generator=torch.Generator().manual_seed(0))
 
     # 3. Create data loaders
     loader_args = dict(batch_size=batch_size, num_workers=4, pin_memory=True)
-    train_loader = DataLoader(train_set, shuffle=True, **loader_args)
-    val_loader = DataLoader(val_set, shuffle=False, drop_last=True, **loader_args)
+    train_loader = DataLoader(dataset, shuffle=True, **loader_args)
+    val_loader = DataLoader(val_dataset, shuffle=True, drop_last=True, **loader_args)
 
     # (Initialize logging)
     experiment = wandb.init(project='U-Net', resume='allow', anonymous='must')
     experiment.config.update(dict(epochs=epochs, batch_size=batch_size, learning_rate=learning_rate,
                                   val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale,
-                                  amp=amp))
+                                  amp=amp, ))
 
     logging.info(f'''Starting training:
         Epochs:          {epochs}
@@ -90,6 +104,7 @@ def train_net(net,
 
                 with torch.cuda.amp.autocast(enabled=amp):
                     masks_pred = net(images)
+                    
                     loss = criterion(masks_pred, true_masks) \
                            + dice_loss(F.softmax(masks_pred, dim=1).float(),
                                        F.one_hot(true_masks, net.n_classes).permute(0, 3, 1, 2).float(),
@@ -109,9 +124,10 @@ def train_net(net,
                     'epoch': epoch
                 })
                 pbar.set_postfix(**{'loss (batch)': loss.item()})
-
+                x=torch.softmax(masks_pred, dim=1)[0].float().cpu()
+                save_image(x, 'checkpoints/mask_softmax.png')
                 # Evaluation round
-                if global_step % (n_train // (10 * batch_size)) == 0:
+                if global_step % (n_train // (5 * batch_size)) == 0:
                     histograms = {}
                     for tag, value in net.named_parameters():
                         tag = tag.replace('/', '.')
@@ -120,20 +136,40 @@ def train_net(net,
 
                     val_score = evaluate(net, val_loader, device)
                     scheduler.step(val_score)
-
-                    logging.info('Validation Dice score: {}'.format(val_score))
                     experiment.log({
-                        'learning rate': optimizer.param_groups[0]['lr'],
-                        'validation Dice': val_score,
-                        'images': wandb.Image(images[0].cpu()),
-                        'masks': {
-                            'true': wandb.Image(true_masks[0].float().cpu()),
-                            'pred': wandb.Image(torch.softmax(masks_pred, dim=1)[0].float().cpu()),
-                        },
-                        'step': global_step,
-                        'epoch': epoch,
-                        **histograms
-                    })
+			'train_images': wandb.Image(images[0].cpu()),
+			'train_masks': {'true': wandb.Image(true_masks[0].float().cpu()),
+					'pred': wandb.Image(torch.softmax(masks_pred, dim=1)[0].float().cpu()),
+					}
+			})
+
+
+                    for val_batch in val_loader:
+
+                        val_images = val_batch['image']
+                        val_masks = val_batch['mask']
+
+                        val_images = val_images.to(device=device, dtype=torch.float32)
+                        val_masks = val_masks.to(device=device, dtype=torch.long)
+
+                        with torch.cuda.amp.autocast(enabled=amp):
+                            val_predict = net(val_images)
+
+                        logging.info('Validation Dice score: {}'.format(val_score))
+
+                        experiment.log({
+                            'learning rate': optimizer.param_groups[0]['lr'],
+                            'validation Dice': val_score,
+                            'images': wandb.Image(val_images[0].cpu()),
+                            'masks': {
+                                'true': wandb.Image(val_masks[0].float().cpu()),
+                                'pred': wandb.Image(torch.softmax(val_predict, dim=1)[0].float().cpu()),
+                            },
+                            'step': global_step,
+                            'epoch': epoch,
+                            **histograms
+                        })
+                        break
 
         if save_checkpoint:
             Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)

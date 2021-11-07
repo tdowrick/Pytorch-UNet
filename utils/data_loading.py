@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
+from torchvision.utils import save_image
 
 
 class BasicDataset(Dataset):
@@ -37,9 +38,8 @@ class BasicDataset(Dataset):
             img_ndarray = img_ndarray[np.newaxis, ...]
         elif not is_mask:
             img_ndarray = img_ndarray.transpose((2, 0, 1))
-
-        if not is_mask:
-            img_ndarray = img_ndarray / 255
+        #if not is_mask:
+        img_ndarray = img_ndarray / 255
 
         return img_ndarray
 
@@ -55,20 +55,22 @@ class BasicDataset(Dataset):
 
     def __getitem__(self, idx):
         name = self.ids[idx]
-        mask_file = list(self.masks_dir.glob(name + self.mask_suffix + '.*'))
+
+        rgb_id = name.split('_')[1]
+        mask_name = 'segmentation_' + rgb_id + '.*'
+        mask_file = list(self.masks_dir.glob(mask_name))
         img_file = list(self.images_dir.glob(name + '.*'))
 
         assert len(mask_file) == 1, f'Either no mask or multiple masks found for the ID {name}: {mask_file}'
         assert len(img_file) == 1, f'Either no image or multiple images found for the ID {name}: {img_file}'
-        mask = self.load(mask_file[0])
-        img = self.load(img_file[0])
+        mask = self.load(mask_file[0]).convert('L')
+        img = self.load(img_file[0]).convert('RGB')
 
         assert img.size == mask.size, \
             'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
 
         img = self.preprocess(img, self.scale, is_mask=False)
         mask = self.preprocess(mask, self.scale, is_mask=True)
-
         return {
             'image': torch.as_tensor(img.copy()).float().contiguous(),
             'mask': torch.as_tensor(mask.copy()).long().contiguous()
