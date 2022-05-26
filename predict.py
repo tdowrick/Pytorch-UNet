@@ -94,7 +94,7 @@ if __name__ == '__main__':
 
     for i, filename in enumerate(in_files):
         logging.info(f'\nPredicting image {filename} ...')
-        img = Image.open(filename)
+        img = Image.open(filename).convert('RGB')
 
         mask = predict_img(net=net,
                            full_img=img,

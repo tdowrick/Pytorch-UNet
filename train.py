@@ -17,8 +17,6 @@ from utils.dice_score import dice_loss
 from evaluate import evaluate
 from unet import UNet
 
-# dir_img = Path('./data/train/images/')
-# dir_mask = Path('./data/train/masks/')
 dir_img = Path(
     r"C:\Users\Tom\AppData\LocalLow\DefaultCompany\My project (2)\50k\images"
 )
@@ -26,8 +24,14 @@ dir_mask = Path(
     r"C:\Users\Tom\AppData\LocalLow\DefaultCompany\My project (2)\50k\masks"
 )
 
-dir_val_img = Path('./data/validation/images')
-dir_val_mask = Path('./data/validation/masks')
+use_wandb = True
+
+#Real data
+dir_img = Path('./data/contours/train/images')
+dir_mask = Path('./data/contours/train/masks')
+
+dir_val_img = Path('./data/contours/validation/images')
+dir_val_mask = Path('./data/contours/validation/masks')
 
 dir_checkpoint = Path('./checkpoints/')
 
@@ -61,10 +65,11 @@ def train_net(net,
     val_loader = DataLoader(val_dataset, shuffle=True, drop_last=True, **loader_args)
 
     # (Initialize logging)
-    experiment = wandb.init(project='U-Net', resume='allow', anonymous='must')
-    experiment.config.update(dict(epochs=epochs, batch_size=batch_size, learning_rate=learning_rate,
-                                  val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale,
-                                  amp=amp, ))
+    if use_wandb:
+        experiment = wandb.init(project='U-Net', resume='allow', anonymous='must')
+        experiment.config.update(dict(epochs=epochs, batch_size=batch_size, learning_rate=learning_rate,
+                                    val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale,
+                                    amp=amp, ))
 
     logging.info(f'''Starting training:
         Epochs:          {epochs}
@@ -118,11 +123,13 @@ def train_net(net,
                 pbar.update(images.shape[0])
                 global_step += 1
                 epoch_loss += loss.item()
-                experiment.log({
-                    'train loss': loss.item(),
-                    'step': global_step,
-                    'epoch': epoch
-                })
+                
+                if use_wandb:
+                    experiment.log({
+                        'train loss': loss.item(),
+                        'step': global_step,
+                        'epoch': epoch
+                    })
                 pbar.set_postfix(**{'loss (batch)': loss.item()})
                 x=torch.softmax(masks_pred, dim=1)[0].float().cpu()
                 save_image(x, 'checkpoints/mask_softmax.png')
@@ -136,12 +143,14 @@ def train_net(net,
 
                     val_score = evaluate(net, val_loader, device)
                     scheduler.step(val_score)
-                    experiment.log({
-			'train_images': wandb.Image(images[0].cpu()),
-			'train_masks': {'true': wandb.Image(true_masks[0].float().cpu()),
-					'pred': wandb.Image(torch.softmax(masks_pred, dim=1)[0].float().cpu()),
-					}
-			})
+
+                    if use_wandb:
+                        experiment.log({
+                'train_images': wandb.Image(images[0].cpu()),
+                'train_masks': {'true': wandb.Image(true_masks[0].float().cpu()),
+                        'pred': wandb.Image(torch.softmax(masks_pred, dim=1)[0].float().cpu()),
+                        }
+                })
 
 
                     for val_batch in val_loader:
@@ -157,18 +166,19 @@ def train_net(net,
 
                         logging.info('Validation Dice score: {}'.format(val_score))
 
-                        experiment.log({
-                            'learning rate': optimizer.param_groups[0]['lr'],
-                            'validation Dice': val_score,
-                            'images': wandb.Image(val_images[0].cpu()),
-                            'masks': {
-                                'true': wandb.Image(val_masks[0].float().cpu()),
-                                'pred': wandb.Image(torch.softmax(val_predict, dim=1)[0].float().cpu()),
-                            },
-                            'step': global_step,
-                            'epoch': epoch,
-                            **histograms
-                        })
+                        if use_wandb:
+                            experiment.log({
+                                'learning rate': optimizer.param_groups[0]['lr'],
+                                'validation Dice': val_score,
+                                'images': wandb.Image(val_images[0].cpu()),
+                                'masks': {
+                                    'true': wandb.Image(val_masks[0].float().cpu()),
+                                    'pred': wandb.Image(torch.softmax(val_predict, dim=1)[0].float().cpu()),
+                                },
+                                'step': global_step,
+                                'epoch': epoch,
+                                **histograms
+                            })
                         break
 
         if save_checkpoint:
@@ -202,7 +212,7 @@ if __name__ == '__main__':
     # Change here to adapt to your data
     # n_channels=3 for RGB images
     # n_classes is the number of probabilities you want to get per pixel
-    net = UNet(n_channels=3, n_classes=2, bilinear=True)
+    net = UNet(n_channels=3, n_classes=3, bilinear=True)
 
     logging.info(f'Network:\n'
                  f'\t{net.n_channels} input channels\n'
