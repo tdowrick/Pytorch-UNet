@@ -70,15 +70,23 @@ def hausdorff_loss(input: Tensor, target: Tensor):
     num_in_batch = input.shape[0]
     for j in range(num_in_batch):
 
-        probs = torch.sigmoid(input)[0]
+        probs = torch.sigmoid(input)[j]
         one_hot = F.one_hot(probs.argmax(dim=0), 3).permute(2, 0, 1) #TODO variable class number
         pred_mask = torch.argmax(one_hot, dim=0)
 
         # TODO: Should the hausdorff distance be averaged across all classes?
         # Bongjin took the sum of all classes, as done here
 
-
+        # TODO: How to handle the case where no pixels are detectd in the input?
+        # Just continuing at the moment. Should there be a fixed penalty for this?
         for i in range(1, torch.max(target)):
+
+            if i not in target[j,:,:]:
+                continue
+
+            if i not in pred_mask:
+                continue
+
             input_pixels = get_coordinates_of_index(pred_mask, i)
             target_pixels = get_coordinates_of_index(target[j,:,:], i)
 
