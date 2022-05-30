@@ -174,12 +174,12 @@ def train_net(net,
                         with torch.cuda.amp.autocast(enabled=amp):
                             val_predict = net(val_images)
 
-                        logging.info('Validation Dice score: {}'.format(val_score))
+                        logging.info('Validation loss: {}'.format(val_score))
 
                         if use_wandb:
                             experiment.log({
                                 'learning rate': optimizer.param_groups[0]['lr'],
-                                'validation Dice': val_score,
+                                'validation loss': val_score,
                                 'images': wandb.Image(val_images[0].cpu()),
                                 'masks': {
                                     'true': wandb.Image(255*val_masks[0].float().cpu()),
