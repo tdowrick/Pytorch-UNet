@@ -40,7 +40,7 @@ def evaluate(net, dataloader, device):
                 # compute the Dice score, ignoring background
                 dice_score += multiclass_dice_coeff(mask_pred[:, 1:, ...], mask_true[:, 1:, ...], reduce_batch_first=False)
             # TODO: Test this is ok, i.e. is hausdorff being calculated properly
-            hausdorff_distance += hausdorff_loss(mask_pred, mask_true)
+            hausdorff_distance += hausdorff_loss(mask_pred, mask_true.long())
 
     net.train()
     return (dice_score + hausdorff_distance) / num_val_batches
