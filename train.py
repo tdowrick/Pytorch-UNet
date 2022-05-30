@@ -17,6 +17,8 @@ from utils.dice_score import dice_loss
 from evaluate import evaluate
 from unet import UNet
 
+import numpy as np
+
 dir_img = Path(
     r"C:\Users\Tom\AppData\LocalLow\DefaultCompany\My project (2)\50k\images"
 )
@@ -66,7 +68,9 @@ def train_net(net,
 
     # (Initialize logging)
     if use_wandb:
-        experiment = wandb.init(project='U-Net', resume='allow', anonymous='must')
+        experiment = wandb.init(project='U-Net-Contours', entity="compass-ucl", resume='allow', anonymous='must',
+                                save_code=True)
+        experiment.log_code(".")
         experiment.config.update(dict(epochs=epochs, batch_size=batch_size, learning_rate=learning_rate,
                                     val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale,
                                     amp=amp, ))
@@ -110,10 +114,10 @@ def train_net(net,
                 with torch.cuda.amp.autocast(enabled=amp):
                     masks_pred = net(images)
                     
-                    loss = criterion(masks_pred, true_masks) \
-                           + dice_loss(F.softmax(masks_pred, dim=1).float(),
-                                       F.one_hot(true_masks, net.n_classes).permute(0, 3, 1, 2).float(),
-                                       multiclass=True)
+                    loss = criterion(masks_pred, true_masks) #\
+                        #    + dice_loss(F.softmax(masks_pred, dim=1).float(),
+                        #                F.one_hot(true_masks, net.n_classes).permute(0, 3, 1, 2).float(),
+                        #                multiclass=True)
 
                 optimizer.zero_grad(set_to_none=True)
                 grad_scaler.scale(loss).backward()
@@ -172,7 +176,7 @@ def train_net(net,
                                 'validation Dice': val_score,
                                 'images': wandb.Image(val_images[0].cpu()),
                                 'masks': {
-                                    'true': wandb.Image(val_masks[0].float().cpu()),
+                                    'true': wandb.Image(255*val_masks[0].float().cpu()),
                                     'pred': wandb.Image(torch.softmax(val_predict, dim=1)[0].float().cpu()),
                                 },
                                 'step': global_step,
