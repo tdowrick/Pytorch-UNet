@@ -23,6 +23,11 @@ class BasicDataset(Dataset):
             raise RuntimeError(f'No input file found in {images_dir}, make sure you put your images there')
         logging.info(f'Creating dataset with {len(self.ids)} examples')
 
+        self.mapping = {(0, 0, 0): 0,
+                    (255, 0 , 0): 1,
+                    (0, 0, 255) : 2}
+                    #(0, 255, 0) : 3}
+
     def __len__(self):
         return len(self.ids)
 
@@ -34,14 +39,33 @@ class BasicDataset(Dataset):
         pil_img = pil_img.resize((newW, newH))
         img_ndarray = np.asarray(pil_img)
 
-        if img_ndarray.ndim == 2 and not is_mask:
-            img_ndarray = img_ndarray[np.newaxis, ...]
-        elif not is_mask:
-            img_ndarray = img_ndarray.transpose((2, 0, 1))
-        #if not is_mask:
-        img_ndarray = img_ndarray / 255
+        if not is_mask:
+            if img_ndarray.ndim == 2:
+                img_ndarray = img_ndarray[np.newaxis, ...]
+            else:
+                img_ndarray = img_ndarray.transpose((2, 0, 1))
+
+            img_ndarray = img_ndarray / 255
 
         return img_ndarray
+
+    def mask_to_class_rgb(self, mask):
+
+        mask[mask!=255] = 0 # There are some intermediate values in images due to aliasing, get rid
+        mask = torch.from_numpy(np.array(mask))
+
+        #mask = torch.squeeze(mask)
+        class_mask = mask
+        class_mask = class_mask.permute(2, 0, 1).contiguous()
+        h, w = class_mask.shape[1], class_mask.shape[2]
+        mask_out = torch.empty(h, w, dtype=torch.long)
+
+        for k in self.mapping:
+            idx = (class_mask == torch.tensor(k, dtype=torch.uint8).unsqueeze(1).unsqueeze(2))
+            validx = (idx.sum(0) == 3)
+            mask_out[validx] = torch.tensor(self.mapping[k], dtype=torch.long)
+
+        return mask_out
 
     @classmethod
     def load(cls, filename):
@@ -63,7 +87,8 @@ class BasicDataset(Dataset):
 
         assert len(mask_file) == 1, f'Either no mask or multiple masks found for the ID {name}: {mask_file}'
         assert len(img_file) == 1, f'Either no image or multiple images found for the ID {name}: {img_file}'
-        mask = self.load(mask_file[0]).convert('L')
+        mask = self.load(mask_file[0]).convert('RGB')
+
         img = self.load(img_file[0]).convert('RGB')
 
         assert img.size == mask.size, \
@@ -71,9 +96,12 @@ class BasicDataset(Dataset):
 
         img = self.preprocess(img, self.scale, is_mask=False)
         mask = self.preprocess(mask, self.scale, is_mask=True)
+
+        mask = self.mask_to_class_rgb(mask)
+
         return {
             'image': torch.as_tensor(img.copy()).float().contiguous(),
-            'mask': torch.as_tensor(mask.copy()).long().contiguous()
+            'mask': mask #torch.as_tensor(mask.copy()).long().contiguous()
         }
 
 
