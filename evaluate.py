@@ -8,6 +8,7 @@ from tqdm import tqdm
 from unet import UNet
 
 from utils.dice_score import multiclass_dice_coeff, dice_coeff
+from utils.hausdorff_distance import hausdorff_loss
 from utils.data_loading import BasicDataset
 
 
@@ -15,7 +16,8 @@ def evaluate(net, dataloader, device):
     net.eval()
     num_val_batches = len(dataloader)
     dice_score = 0
-
+    hausdorff_distance = 0
+    
     # iterate over the validation set
     for batch in tqdm(dataloader, total=num_val_batches, desc='Validation round', unit='batch', leave=False):
         image, mask_true = batch['image'], batch['mask']
@@ -37,11 +39,11 @@ def evaluate(net, dataloader, device):
                 mask_pred = F.one_hot(mask_pred.argmax(dim=1), net.n_classes).permute(0, 3, 1, 2).float()
                 # compute the Dice score, ignoring background
                 dice_score += multiclass_dice_coeff(mask_pred[:, 1:, ...], mask_true[:, 1:, ...], reduce_batch_first=False)
-
-           
+            # TODO: Test this is ok, i.e. is hausdorff being calculated properly
+            hausdorff_distance += hausdorff_loss(mask_pred, mask_true)
 
     net.train()
-    return dice_score / num_val_batches
+    return (dice_score + hausdorff_distance) / num_val_batches
 
 def get_args():
     parser = argparse.ArgumentParser(description='Evalute the UNet on images and target masks')

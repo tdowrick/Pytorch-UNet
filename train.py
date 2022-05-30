@@ -12,8 +12,9 @@ from torch import optim
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 from torchvision.utils import save_image
-from utils.data_loading import BasicDataset, CarvanaDataset
+from utils.data_loading import BasicDataset
 from utils.dice_score import dice_loss
+from utils.hausdorff_distance import hausdorff_loss
 from evaluate import evaluate
 from unet import UNet
 
@@ -114,10 +115,12 @@ def train_net(net,
                 with torch.cuda.amp.autocast(enabled=amp):
                     masks_pred = net(images)
                     
-                    loss = criterion(masks_pred, true_masks) #\
-                        #    + dice_loss(F.softmax(masks_pred, dim=1).float(),
-                        #                F.one_hot(true_masks, net.n_classes).permute(0, 3, 1, 2).float(),
-                        #                multiclass=True)
+                    crossentropy_loss = criterion(masks_pred, true_masks)
+                    dice_score = dice_loss(F.softmax(masks_pred, dim=1).float(),
+                                       F.one_hot(true_masks, net.n_classes).permute(0, 3, 1, 2).float(),
+                                       multiclass=True)
+                    hausdorff_distance = hausdorff_loss(masks_pred, true_masks)
+                    loss =  crossentropy_loss + dice_score + hausdorff_distance
 
                 optimizer.zero_grad(set_to_none=True)
                 grad_scaler.scale(loss).backward()
@@ -131,7 +134,9 @@ def train_net(net,
                 if use_wandb:
                     experiment.log({
                         'train loss': loss.item(),
-                        'step': global_step,
+                        'Crossentropy loss': crossentropy_loss,
+                        'DICE score': dice_score,
+                        'Hausdorff loss': hausdorff_distance,
                         'epoch': epoch
                     })
                 pbar.set_postfix(**{'loss (batch)': loss.item()})
@@ -145,6 +150,7 @@ def train_net(net,
                         histograms['Weights/' + tag] = wandb.Histogram(value.data.cpu())
                         histograms['Gradients/' + tag] = wandb.Histogram(value.grad.data.cpu())
 
+                    # TODO: val_score
                     val_score = evaluate(net, val_loader, device)
                     scheduler.step(val_score)
 
