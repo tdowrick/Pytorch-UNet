@@ -120,7 +120,8 @@ def train_net(net,
                                        F.one_hot(true_masks, net.n_classes).permute(0, 3, 1, 2).float(),
                                        multiclass=True)
                     hausdorff_distance = hausdorff_loss(masks_pred, true_masks)
-                    loss =  crossentropy_loss + dice_score + hausdorff_distance
+                    #loss =  crossentropy_loss + dice_score + hausdorff_distance
+                    loss = dice_score + hausdorff_distance
 
                 optimizer.zero_grad(set_to_none=True)
                 grad_scaler.scale(loss).backward()
@@ -137,7 +138,6 @@ def train_net(net,
                         'Crossentropy loss': crossentropy_loss,
                         'DICE score': dice_score,
                         'Hausdorff loss': hausdorff_distance,
-                        'epoch': epoch
                     })
                 pbar.set_postfix(**{'loss (batch)': loss.item()})
                 x=torch.softmax(masks_pred, dim=1)[0].float().cpu()
